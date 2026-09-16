@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Trash2, Send, AlertCircle, ShieldAlert, Upload, X } from 'lucide-react';
+import { Plus, Send, AlertCircle, ShieldAlert, Upload, X, CheckCircle2 } from 'lucide-react';
 
 function generateRequisitionId() {
   const now = new Date();
@@ -34,8 +34,10 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
   const [dateNeeded, setDateNeeded] = useState('');
   const [department, setDepartment] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [poNumber, setPoNumber] = useState('');
   const [items, setItems] = useState(INITIAL_ITEMS);
   const [errors, setErrors] = useState({});
+  const [duplicateWarning, setDuplicateWarning] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [signatures, setSignatures] = useState({
@@ -62,6 +64,8 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
     const updated = [...items];
     updated[index] = { ...updated[index], [field]: value };
     setItems(updated);
+    setDuplicateWarning('');
+    if (errors.items) setErrors((prev) => ({ ...prev, items: null }));
   };
 
   const handleAddItem = () => {
@@ -71,6 +75,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
   const handleRemoveItem = (index) => {
     if (items.length <= 1) return;
     setItems(items.filter((_, idx) => idx !== index));
+    setDuplicateWarning('');
   };
 
   const handleSignatureNameChange = (roleKey, value) => {
@@ -78,6 +83,9 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
       ...prev,
       [roleKey]: { ...prev[roleKey], name: value }
     }));
+    if (errors[`sig_${roleKey}`]) {
+      setErrors((prev) => ({ ...prev, [`sig_${roleKey}`]: null }));
+    }
   };
 
   const handleSignatureImageUpload = (roleKey, file) => {
@@ -88,6 +96,9 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         ...prev,
         [roleKey]: { ...prev[roleKey], image: e.target.result }
       }));
+      if (errors[`sig_${roleKey}`]) {
+        setErrors((prev) => ({ ...prev, [`sig_${roleKey}`]: null }));
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -105,6 +116,73 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
     return sum + qty * cost;
   }, 0);
 
+  const validateForm = (filledItems) => {
+    const validationErrors = {};
+
+    if (!department.trim()) {
+      validationErrors.department = 'Charge to (Department/Unit) is required.';
+    }
+    if (!dateNeeded) {
+      validationErrors.dateNeeded = 'Date Needed is required.';
+    }
+    if (!remarks.trim() || remarks.trim().length < 5) {
+      validationErrors.remarks = 'Remarks / Business justification is required (minimum 5 characters).';
+    }
+    if (filledItems.length === 0) {
+      validationErrors.items = 'At least one complete line item (particulars, qty > 0, unit cost >= 0) is required.';
+    } else {
+      filledItems.forEach((item, index) => {
+        if (!item.particulars.trim()) {
+          validationErrors[`item_${index}_particulars`] = 'Particulars description is required.';
+        }
+        if (!item.quantity || Number(item.quantity) <= 0) {
+          validationErrors[`item_${index}_quantity`] = 'Qty must be > 0.';
+        }
+        if (item.unitCost === '' || Number(item.unitCost) < 0) {
+          validationErrors[`item_${index}_unitCost`] = 'Unit cost must be >= 0.';
+        }
+      });
+    }
+
+    if (!signatures.requestedBy.name.trim()) {
+      validationErrors.sig_requestedBy = 'Requestor printed name is required.';
+    }
+
+    setErrors(validationErrors);
+    return Object.keys(validationErrors).length === 0;
+  };
+
+  const checkForDuplicates = (processedItems) => {
+    try {
+      const existing = JSON.parse(localStorage.getItem('docupulse_requisitions') || '[]');
+      const isDuplicate = existing.some((req) => {
+        const sameDept = req.department?.toLowerCase() === department.trim().toLowerCase();
+        const sameType = req.category === reqType;
+        const sameTotal = Number(req.totalAmount) === Number(totalCost.toFixed(2));
+        const sameRemarks = req.justification?.toLowerCase() === remarks.trim().toLowerCase();
+
+        const sameItems =
+          req.items?.length === processedItems.length &&
+          req.items.every(
+            (item, idx) =>
+              item.description?.toLowerCase() === processedItems[idx]?.description?.toLowerCase() &&
+              Number(item.quantity) === Number(processedItems[idx]?.quantity)
+          );
+
+        return sameDept && sameType && sameTotal && sameRemarks && sameItems;
+      });
+
+      if (isDuplicate) {
+        setDuplicateWarning('Duplicate Submission Flagged: An identical requisition has already been submitted to DocuPulse.');
+        return true;
+      }
+    } catch (e) {
+      console.error('Error reading localStorage for duplicate verification:', e);
+    }
+    setDuplicateWarning('');
+    return false;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -117,20 +195,23 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
       (item) => item.particulars.trim() !== '' || item.quantity !== '' || item.unitCost !== ''
     );
 
-    const validationErrors = {};
-    if (!department.trim()) validationErrors.department = 'Charge to (Department/Unit) is required.';
-    if (!dateNeeded) validationErrors.dateNeeded = 'Date Needed is required.';
-    if (!remarks.trim() || remarks.trim().length < 5) {
-      validationErrors.remarks = 'Remarks / Business justification is required (minimum 5 characters).';
-    }
-    if (filledItems.length === 0) {
-      validationErrors.items = 'At least one line item is required.';
-    }
+    const isValid = validateForm(filledItems);
+    if (!isValid) return;
 
-    if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors);
-      return;
-    }
+    const processedItems = filledItems.map((item, idx) => {
+      const qty = parseInt(item.quantity, 10) || 1;
+      const price = parseFloat(item.unitCost) || 0;
+      return {
+        lineNumber: idx + 1,
+        description: item.particulars.trim(),
+        quantity: qty,
+        unitPrice: price,
+        lineTotal: +(qty * price).toFixed(2)
+      };
+    });
+
+    const isDup = checkForDuplicates(processedItems);
+    if (isDup) return;
 
     try {
       setIsSubmitting(true);
@@ -143,18 +224,6 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         timeStyle: 'medium'
       });
 
-      const processedItems = filledItems.map((item, idx) => {
-        const qty = parseInt(item.quantity, 10) || 1;
-        const price = parseFloat(item.unitCost) || 0;
-        return {
-          lineNumber: idx + 1,
-          description: item.particulars.trim(),
-          quantity: qty,
-          unitPrice: price,
-          lineTotal: +(qty * price).toFixed(2)
-        };
-      });
-
       const record = {
         requisitionId,
         title: `${reqType} Requisition - ${department}`,
@@ -162,10 +231,13 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         category: reqType,
         priority: 'Medium',
         justification: remarks.trim(),
+        poNumber: poNumber.trim(),
+        dateNeeded,
         currency: 'PHP',
         items: processedItems,
         totalAmount: +(totalCost.toFixed(2)),
-        status: 'Submitted',
+        status: 'Pending Department Head Approval',
+        currentApprover: 'Department Head',
         submittedAt: submissionTimestamp,
         submittedAtFormatted: formattedTimestamp,
         requestor: {
@@ -174,7 +246,16 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           department: currentUser.department,
           role: currentUser.role
         },
-        signatories: signatures
+        signatories: signatures,
+        history: [
+          {
+            stage: 'Submission',
+            status: 'Submitted',
+            by: signatures.requestedBy.name || currentUser.name,
+            timestamp: submissionTimestamp,
+            note: 'Form validated automatically and routed for Department Head Review.'
+          }
+        ]
       };
 
       const existing = JSON.parse(localStorage.getItem('docupulse_requisitions') || '[]');
@@ -185,7 +266,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
       if (onSubmissionSuccess) {
         onSubmissionSuccess({
           success: true,
-          message: `Requisition ${requisitionId} has been successfully submitted and logged into DocuPulse.`,
+          message: `Requisition ${requisitionId} validated and routed to your Department Head for approval.`,
           requisition: record
         });
       }
@@ -193,6 +274,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
       setItems(INITIAL_ITEMS);
       setRemarks('');
       setDateNeeded('');
+      setPoNumber('');
       setSignatures({
         requestedBy: { name: currentUser.name || '', image: null },
         verifiedBy: { name: '', image: null },
@@ -200,6 +282,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         approvedBy: { name: '', image: null }
       });
       setErrors({});
+      setDuplicateWarning('');
     } catch (err) {
       setIsSubmitting(false);
       setErrors({ submit: err.message });
@@ -331,13 +414,18 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         }
 
         .apc-meta-date-input {
-          border: none;
+          border: 1px solid #cbd5e1;
           border-bottom: 1px solid #1e293b;
           padding: 0.15rem 0.25rem;
           font-family: monospace;
           font-size: 0.825rem;
           outline: none;
           width: 130px;
+        }
+
+        .apc-meta-date-input.has-error {
+          border: 1px solid #ef4444;
+          background-color: #fef2f2;
         }
 
         .apc-table-wrap {
@@ -374,6 +462,11 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           font-size: 0.9rem;
           padding: 0.25rem;
           box-sizing: border-box;
+        }
+
+        .apc-cell-input.has-error {
+          border: 1px solid #ef4444;
+          background-color: #fef2f2;
         }
 
         .apc-cell-input:focus {
@@ -453,6 +546,11 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           font-family: inherit;
         }
 
+        .apc-remarks-textarea.has-error {
+          border-color: #ef4444;
+          background-color: #fef2f2;
+        }
+
         .apc-charge-row {
           display: flex;
           align-items: center;
@@ -466,6 +564,11 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           padding: 0.25rem 0.5rem;
           font-size: 0.9rem;
           outline: none;
+        }
+
+        .apc-charge-input.has-error {
+          border-bottom: 2px solid #ef4444;
+          background-color: #fef2f2;
         }
 
         .apc-signatures-grid {
@@ -569,6 +672,11 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           background: transparent;
         }
 
+        .apc-sig-name-input.has-error {
+          border-bottom: 2px solid #ef4444;
+          background-color: #fef2f2;
+        }
+
         .apc-sig-name-input:focus {
           border-bottom: 1px solid #1e3a8a;
           background: #eff6ff;
@@ -582,20 +690,27 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           text-align: left;
         }
 
-        .apc-footer-code {
-          margin-top: 0.75rem;
-          font-size: 0.7rem;
-          font-family: monospace;
-          color: #64748b;
-        }
-
         .apc-actions-bar {
           margin-top: 1.5rem;
           padding-top: 1.25rem;
           border-top: 1px solid #cbd5e1;
           display: flex;
-          justify-content: flex-end;
+          justify-content: space-between;
+          align-items: center;
           width: 100%;
+        }
+
+        .apc-workflow-badge {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-size: 0.8rem;
+          color: #047857;
+          background: #ecfdf5;
+          padding: 0.4rem 0.75rem;
+          border-radius: 4px;
+          border: 1px solid #a7f3d0;
+          font-weight: 600;
         }
 
         .apc-submit-btn {
@@ -644,6 +759,31 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           max-width: 900px;
           box-sizing: border-box;
         }
+
+        .apc-error-summary {
+          background: #fef2f2;
+          border: 1px solid #fca5a5;
+          padding: 0.85rem 1.25rem;
+          border-radius: 6px;
+          margin-bottom: 1.25rem;
+          color: #991b1b;
+          width: 100%;
+          max-width: 900px;
+          box-sizing: border-box;
+        }
+
+        .apc-error-summary-title {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-weight: 800;
+          font-size: 0.9rem;
+        }
+
+        .apc-error-summary-list {
+          margin: 0.4rem 0 0 1.25rem;
+          font-size: 0.825rem;
+        }
       `}</style>
 
       {!isAuthorized && (
@@ -663,16 +803,34 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         </div>
       )}
 
+      {(Object.keys(errors).length > 0 || duplicateWarning) && (
+        <div className="apc-error-summary">
+          <div className="apc-error-summary-title">
+            <AlertCircle size={18} />
+            <span>Form Submission Validation Issues</span>
+          </div>
+          {duplicateWarning ? (
+            <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.85rem' }}>{duplicateWarning}</p>
+          ) : (
+            <ul className="apc-error-summary-list">
+              {Object.values(errors).map(
+                (err, idx) => err && <li key={idx}>{err}</li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="apc-paper-sheet" noValidate>
         <div className="apc-doc-header">
           <div className="apc-brand-center">
             <div className="apc-org-emblem">
-  <img 
-    src="/apc-logo.png" 
-    alt="Asia Pacific College Seal" 
-    style={{ width: '68px', height: '68px', objectFit: 'contain', display: 'block', margin: '0 auto' }} 
-  />
-</div>
+              <img
+                src="/apc-logo.png"
+                alt="Asia Pacific College Seal"
+                style={{ width: '68px', height: '68px', objectFit: 'contain', display: 'block', margin: '0 auto' }}
+              />
+            </div>
             <h2 className="apc-org-name">Asia Pacific College</h2>
             <h1 className="apc-form-title">REQUISITION FORM</h1>
 
@@ -683,7 +841,10 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
                   name="reqType"
                   value="PAYMENT"
                   checked={reqType === 'PAYMENT'}
-                  onChange={() => setReqType('PAYMENT')}
+                  onChange={() => {
+                    setReqType('PAYMENT');
+                    setDuplicateWarning('');
+                  }}
                   disabled={!isAuthorized}
                 />
                 [ &nbsp; ] PAYMENT
@@ -695,7 +856,10 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
                   name="reqType"
                   value="PURCHASE"
                   checked={reqType === 'PURCHASE'}
-                  onChange={() => setReqType('PURCHASE')}
+                  onChange={() => {
+                    setReqType('PURCHASE');
+                    setDuplicateWarning('');
+                  }}
                   disabled={!isAuthorized}
                 />
                 [ &nbsp; ] PURCHASE
@@ -716,9 +880,12 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
               <span className="apc-meta-title">Date Needed: *</span>
               <input
                 type="date"
-                className="apc-meta-date-input"
+                className={`apc-meta-date-input ${errors.dateNeeded ? 'has-error' : ''}`}
                 value={dateNeeded}
-                onChange={(e) => setDateNeeded(e.target.value)}
+                onChange={(e) => {
+                  setDateNeeded(e.target.value);
+                  setErrors((prev) => ({ ...prev, dateNeeded: null }));
+                }}
                 disabled={!isAuthorized}
               />
             </div>
@@ -753,7 +920,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
                         type="number"
                         min="1"
                         placeholder="1"
-                        className="apc-cell-input"
+                        className={`apc-cell-input ${errors[`item_${idx}_quantity`] ? 'has-error' : ''}`}
                         style={{ textAlign: 'center' }}
                         value={item.quantity}
                         onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
@@ -764,7 +931,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
                       <input
                         type="text"
                         placeholder="Specify item description or purpose..."
-                        className="apc-cell-input"
+                        className={`apc-cell-input ${errors[`item_${idx}_particulars`] ? 'has-error' : ''}`}
                         value={item.particulars}
                         onChange={(e) => handleItemChange(idx, 'particulars', e.target.value)}
                         disabled={!isAuthorized}
@@ -776,7 +943,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
                         min="0"
                         step="0.01"
                         placeholder="0.00"
-                        className="apc-cell-input"
+                        className={`apc-cell-input ${errors[`item_${idx}_unitCost`] ? 'has-error' : ''}`}
                         style={{ textAlign: 'right' }}
                         value={item.unitCost}
                         onChange={(e) => handleItemChange(idx, 'unitCost', e.target.value)}
@@ -832,10 +999,14 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             <label className="apc-field-title">Remarks: *</label>
             <textarea
               rows={2}
-              className="apc-remarks-textarea"
+              className={`apc-remarks-textarea ${errors.remarks ? 'has-error' : ''}`}
               placeholder="State purpose, account codes, or business justification..."
               value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
+              onChange={(e) => {
+                setRemarks(e.target.value);
+                setDuplicateWarning('');
+                setErrors((prev) => ({ ...prev, remarks: null }));
+              }}
               disabled={!isAuthorized}
             />
             {errors.remarks && <span className="apc-error-msg">{errors.remarks}</span>}
@@ -847,10 +1018,14 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             </label>
             <input
               type="text"
-              className="apc-charge-input"
+              className={`apc-charge-input ${errors.department ? 'has-error' : ''}`}
               placeholder="e.g. Operations, IT, Finance"
               value={department}
-              onChange={(e) => setDepartment(e.target.value)}
+              onChange={(e) => {
+                setDepartment(e.target.value);
+                setDuplicateWarning('');
+                setErrors((prev) => ({ ...prev, department: null }));
+              }}
               disabled={!isAuthorized}
             />
           </div>
@@ -888,12 +1063,13 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             </div>
             <input
               type="text"
-              className="apc-sig-name-input"
+              className={`apc-sig-name-input ${errors.sig_requestedBy ? 'has-error' : ''}`}
               value={signatures.requestedBy.name}
               onChange={(e) => handleSignatureNameChange('requestedBy', e.target.value)}
-              placeholder="Type Requestor Name"
+              placeholder="Type Requestor Name *"
               disabled={!isAuthorized}
             />
+            {errors.sig_requestedBy && <span className="apc-error-msg">{errors.sig_requestedBy}</span>}
             <span className="apc-sig-footer-text">Signature over Printed Name / Date</span>
           </div>
 
@@ -1014,25 +1190,33 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             <span className="apc-sig-footer-text">Signature over Printed Name / Date</span>
           </div>
 
-         <div className="apc-sig-cell po-cell">
+          <div className="apc-sig-cell po-cell">
             <span className="apc-sig-header">For Purchase, related PO number:</span>
             <input
               type="text"
               className="apc-sig-name-input"
               style={{ textAlign: 'left', marginTop: '0.2rem' }}
               placeholder="Enter reference PO Number if available"
+              value={poNumber}
+              onChange={(e) => setPoNumber(e.target.value)}
               disabled={!isAuthorized}
             />
           </div>
         </div>
+
         <div className="apc-actions-bar">
+          <div className="apc-workflow-badge">
+            <CheckCircle2 size={16} />
+            <span>Target Workflow: <strong>Department Head Approval</strong></span>
+          </div>
+
           <button
             type="submit"
             className="apc-submit-btn"
             disabled={!isAuthorized || isSubmitting}
           >
             <Send size={18} />
-            {isSubmitting ? 'Submitting Form...' : 'Submit Digital Requisition'}
+            {isSubmitting ? 'Validating Submission...' : 'Submit Digital Requisition'}
           </button>
         </div>
       </form>
