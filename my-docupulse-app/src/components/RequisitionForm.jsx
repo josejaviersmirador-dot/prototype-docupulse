@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Trash2, Send, AlertCircle, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, Send, AlertCircle, ShieldAlert, Upload, X } from 'lucide-react';
 
 function generateRequisitionId() {
   const now = new Date();
@@ -30,9 +30,23 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [signatures, setSignatures] = useState({
+    requestedBy: { name: '', image: null, date: '' },
+    verifiedBy: { name: '', image: null, date: '' },
+    fundingAssuredBy: { name: '', image: null, date: '' },
+    approvedBy: { name: '', image: null, date: '' }
+  });
+
   useEffect(() => {
-    if (currentUser?.department && !department && currentUser.authorized) {
-      setDepartment(currentUser.department);
+    if (currentUser && currentUser.authorized) {
+      if (!department) setDepartment(currentUser.department || '');
+      setSignatures((prev) => ({
+        ...prev,
+        requestedBy: {
+          ...prev.requestedBy,
+          name: prev.requestedBy.name || currentUser.name || ''
+        }
+      }));
     }
   }, [currentUser]);
 
@@ -49,6 +63,32 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
   const handleRemoveItem = (index) => {
     if (items.length <= 1) return;
     setItems(items.filter((_, idx) => idx !== index));
+  };
+
+  const handleSignatureNameChange = (roleKey, value) => {
+    setSignatures((prev) => ({
+      ...prev,
+      [roleKey]: { ...prev[roleKey], name: value }
+    }));
+  };
+
+  const handleSignatureImageUpload = (roleKey, file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setSignatures((prev) => ({
+        ...prev,
+        [roleKey]: { ...prev[roleKey], image: e.target.result }
+      }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveSignatureImage = (roleKey) => {
+    setSignatures((prev) => ({
+      ...prev,
+      [roleKey]: { ...prev[roleKey], image: null }
+    }));
   };
 
   const totalCost = items.reduce((sum, item) => {
@@ -122,9 +162,15 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         submittedAtFormatted: formattedTimestamp,
         requestor: {
           id: currentUser.id,
-          name: currentUser.name,
+          name: signatures.requestedBy.name || currentUser.name,
           department: currentUser.department,
           role: currentUser.role
+        },
+        signatories: {
+          requestedBy: signatures.requestedBy,
+          verifiedBy: signatures.verifiedBy,
+          fundingAssuredBy: signatures.fundingAssuredBy,
+          approvedBy: signatures.approvedBy
         }
       };
 
@@ -144,6 +190,12 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
       setItems(INITIAL_ITEMS);
       setRemarks('');
       setDateNeeded('');
+      setSignatures({
+        requestedBy: { name: currentUser.name || '', image: null, date: '' },
+        verifiedBy: { name: '', image: null, date: '' },
+        fundingAssuredBy: { name: '', image: null, date: '' },
+        approvedBy: { name: '', image: null, date: '' }
+      });
       setErrors({});
     } catch (err) {
       setIsSubmitting(false);
@@ -376,44 +428,173 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         <div className="paper-signatures-grid">
           <div className="signature-box">
             <span className="sig-title">Requested by:</span>
-            <div className="sig-content">
-              <div className="sig-name">{currentUser.name}</div>
-              <div className="sig-meta">{currentUser.role} &bull; {currentUser.department}</div>
-              <div className="digital-sig-stamp">
-                <CheckCircle2 size={12} color="#059669" /> Digital ID Verified
-              </div>
+            <div className="sig-upload-area">
+              {signatures.requestedBy.image ? (
+                <div className="sig-preview-wrap">
+                  <img src={signatures.requestedBy.image} alt="Requested by Signature" className="sig-preview-img" />
+                  <button
+                    type="button"
+                    className="sig-remove-btn"
+                    onClick={() => handleRemoveSignatureImage('requestedBy')}
+                    title="Remove signature"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <label className="sig-upload-label">
+                  <Upload size={13} />
+                  <span>Upload Signature</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(e) => handleSignatureImageUpload('requestedBy', e.target.files[0])}
+                    disabled={!isAuthorized}
+                  />
+                </label>
+              )}
             </div>
+            <input
+              type="text"
+              className="sig-name-input"
+              value={signatures.requestedBy.name}
+              onChange={(e) => handleSignatureNameChange('requestedBy', e.target.value)}
+              placeholder="Type Requestor Name"
+              disabled={!isAuthorized}
+            />
             <span className="sig-footer-label">Signature over Printed Name / Date</span>
           </div>
 
           <div className="signature-box">
             <span className="sig-title">Verified by:</span>
-            <div className="sig-content">
-              <div className="sig-pending-text">[ System Routing upon Submit ]</div>
+            <div className="sig-upload-area">
+              {signatures.verifiedBy.image ? (
+                <div className="sig-preview-wrap">
+                  <img src={signatures.verifiedBy.image} alt="Verified by Signature" className="sig-preview-img" />
+                  <button
+                    type="button"
+                    className="sig-remove-btn"
+                    onClick={() => handleRemoveSignatureImage('verifiedBy')}
+                    title="Remove signature"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <label className="sig-upload-label">
+                  <Upload size={13} />
+                  <span>Upload Signature</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(e) => handleSignatureImageUpload('verifiedBy', e.target.files[0])}
+                    disabled={!isAuthorized}
+                  />
+                </label>
+              )}
             </div>
+            <input
+              type="text"
+              className="sig-name-input"
+              value={signatures.verifiedBy.name}
+              onChange={(e) => handleSignatureNameChange('verifiedBy', e.target.value)}
+              placeholder="Type Verifier Name"
+              disabled={!isAuthorized}
+            />
             <span className="sig-footer-label">Signature over Printed Name / Date</span>
           </div>
 
           <div className="signature-box">
             <span className="sig-title">Funding Assured by:</span>
-            <div className="sig-content">
-              <div className="sig-pending-text">[ Finance & Accounting Unit ]</div>
+            <div className="sig-upload-area">
+              {signatures.fundingAssuredBy.image ? (
+                <div className="sig-preview-wrap">
+                  <img src={signatures.fundingAssuredBy.image} alt="Funding Assured Signature" className="sig-preview-img" />
+                  <button
+                    type="button"
+                    className="sig-remove-btn"
+                    onClick={() => handleRemoveSignatureImage('fundingAssuredBy')}
+                    title="Remove signature"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <label className="sig-upload-label">
+                  <Upload size={13} />
+                  <span>Upload Signature</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(e) => handleSignatureImageUpload('fundingAssuredBy', e.target.files[0])}
+                    disabled={!isAuthorized}
+                  />
+                </label>
+              )}
             </div>
+            <input
+              type="text"
+              className="sig-name-input"
+              value={signatures.fundingAssuredBy.name}
+              onChange={(e) => handleSignatureNameChange('fundingAssuredBy', e.target.value)}
+              placeholder="Type Finance Name"
+              disabled={!isAuthorized}
+            />
             <span className="sig-footer-label">Signature over Printed Name / Date</span>
           </div>
 
           <div className="signature-box">
             <span className="sig-title">Approved by:</span>
-            <div className="sig-content">
-              <div className="sig-pending-text">[ Department Head Approval ]</div>
+            <div className="sig-upload-area">
+              {signatures.approvedBy.image ? (
+                <div className="sig-preview-wrap">
+                  <img src={signatures.approvedBy.image} alt="Approved by Signature" className="sig-preview-img" />
+                  <button
+                    type="button"
+                    className="sig-remove-btn"
+                    onClick={() => handleRemoveSignatureImage('approvedBy')}
+                    title="Remove signature"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <label className="sig-upload-label">
+                  <Upload size={13} />
+                  <span>Upload Signature</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(e) => handleSignatureImageUpload('approvedBy', e.target.files[0])}
+                    disabled={!isAuthorized}
+                  />
+                </label>
+              )}
             </div>
+            <input
+              type="text"
+              className="sig-name-input"
+              value={signatures.approvedBy.name}
+              onChange={(e) => handleSignatureNameChange('approvedBy', e.target.value)}
+              placeholder="Type Approver Name"
+              disabled={!isAuthorized}
+            />
             <span className="sig-footer-label">Signature over Printed Name / Date</span>
           </div>
 
           <div className="signature-box po-box">
             <span className="sig-title">For Purchase, related PO number:</span>
             <div className="sig-content">
-              <div className="sig-pending-text">Generated after approval</div>
+              <input
+                type="text"
+                className="sig-name-input"
+                placeholder="PO Number (Auto-assigned or enter reference)"
+                disabled={!isAuthorized}
+              />
             </div>
           </div>
         </div>
