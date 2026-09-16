@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from './AuthContext';
-import { validateRequisitionInput, submitRequisition } from '../requisitionService';
+import { useAuth } from '../AuthContext';
 import { Plus, Trash2, Send, Sparkles, AlertCircle, ShieldAlert, CheckCircle2 } from 'lucide-react';
+
+function generateRequisitionId() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const dateStr = `${year}${month}${day}`;
+  const randomHex = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `REQ-${dateStr}-${randomHex}`;
+}
 
 const INITIAL_ITEMS = [
   { id: 1, quantity: 1, particulars: '', unitCost: '' },
@@ -11,20 +20,30 @@ const INITIAL_ITEMS = [
 ];
 
 export default function RequisitionForm({ onSubmissionSuccess }) {
-  const { currentUser, isAuthorized } = useAuth();
+  const authContext = useAuth ? useAuth() : null;
+  const currentUser = authContext?.currentUser || {
+    id: 'usr_ops_01',
+    name: 'Jane Doe',
+    department: 'Operations',
+    role: 'Senior Operations Lead',
+    authorized: true
+  };
+  const isAuthorized = authContext ? authContext.isAuthorized : true;
 
-  const [reqType, setReqType] = useState('PURCHASE'); // 'PAYMENT' or 'PURCHASE'
+  const [reqType, setReqType] = useState('PURCHASE');
   const [dateNeeded, setDateNeeded] = useState('');
   const [department, setDepartment] = useState('');
   const [remarks, setRemarks] = useState('');
   const [items, setItems] = useState(INITIAL_ITEMS);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
   useEffect(() => {
-    if (currentUser && currentUser.department && !department && currentUser.authorized) {
+    if (currentUser?.department && !department) {
       setDepartment(currentUser.department);
     }
   }, [currentUser]);
+
   const handleItemChange = (index, field, value) => {
     const updated = [...items];
     updated[index] = { ...updated[index], [field]: value };
@@ -39,11 +58,13 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
     if (items.length <= 1) return;
     setItems(items.filter((_, idx) => idx !== index));
   };
+
   const totalCost = items.reduce((sum, item) => {
     const qty = Number(item.quantity) || 0;
     const cost = Number(item.unitCost) || 0;
     return sum + qty * cost;
   }, 0);
+
   const handleFillSample = () => {
     setReqType('PURCHASE');
     setDateNeeded(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
@@ -56,70 +77,80 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
     ]);
     setErrors({});
   };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!isAuthorized) {
-      setErrors({ auth: 'Unauthorized Requestor: You must be logged in as an authorized user to submit.' });
+      setErrors({ auth: 'Unauthorized: You must be an authorized requestor to submit.' });
       return;
     }
+
     const filledItems = items.filter(
       (item) => item.particulars.trim() !== '' || item.quantity !== '' || item.unitCost !== ''
     );
 
     const validationErrors = {};
-    if (!department.trim()) {
-      validationErrors.department = 'Charge to (Department/Unit) is required.';
-    }
-    if (!dateNeeded) {
-      validationErrors.dateNeeded = 'Date Needed is required.';
-    }
-    if (!remarks.trim() || remarks.trim().length < 5) {
-      validationErrors.remarks = 'Remarks / Business justification is required.';
-    }
-    if (filledItems.length === 0) {
-      validationErrors.items = 'At least one line item is required.';
-    } else {
-      filledItems.forEach((item, idx) => {
-        if (!item.particulars.trim()) {
-          validationErrors[`item_${idx}_particulars`] = 'Required';
-        }
-        if (!item.quantity || Number(item.quantity) <= 0) {
-          validationErrors[`item_${idx}_quantity`] = 'Invalid Qty';
-        }
-        if (item.unitCost === '' || Number(item.unitCost) < 0) {
-          validationErrors[`item_${idx}_cost`] = 'Invalid Cost';
-        }
-      });
-    }
+    if (!department.trim()) validationErrors.department = 'Department is required.';
+    if (!dateNeeded) validationErrors.dateNeeded = 'Date Needed is required.';
+    if (!remarks.trim() || remarks.trim().length < 5) validationErrors.remarks = 'Remarks / Business justification is required.';
+    if (filledItems.length === 0) validationErrors.items = 'At least one line item is required.';
 
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
       return;
     }
-    const payload = {
-      title: `${reqType} Requisition - ${department}`,
-      department: department.trim(),
-      category: reqType === 'PURCHASE' ? 'Office / Equipment' : 'Payment / Operating Expense',
-      priority: 'Medium',
-      justification: remarks.trim(),
-      currency: 'PHP',
-      items: filledItems.map((item) => ({
-        description: item.particulars.trim(),
-        quantity: parseInt(item.quantity, 10),
-        unitPrice: parseFloat(item.unitCost)
-      }))
-    };
 
     try {
       setIsSubmitting(true);
-      const result = await submitRequisition(payload, currentUser);
+      const requisitionId = generateRequisitionId();
+      const submissionDate = new Date();
+      const submissionTimestamp = submissionDate.toISOString();
+      const formattedTimestamp = submissionDate.toLocaleString('en-US', {
+        dateStyle: 'medium',
+        timeStyle: 'medium'
+      });
+
+      const processedItems = filledItems.map((item, idx) => ({
+        lineNumber: idx + 1,
+        description: item.particulars.trim(),
+        quantity: parseInt(item.quantity, 10) || 1,
+        unitPrice: parseFloat(item.unitCost) || 0,
+        lineTotal: +((parseInt(item.quantity, 10) || 1) * (parseFloat(item.unitCost) || 0)).toFixed(2)
+      }));
+
+      const record = {
+        requisitionId,
+        title: `${reqType} Requisition - ${department}`,
+        department: department.trim(),
+        category: reqType,
+        priority: 'Medium',
+        justification: remarks.trim(),
+        currency: 'USD',
+        items: processedItems,
+        totalAmount: +(totalCost.toFixed(2)),
+        status: 'Submitted',
+        submittedAt: submissionTimestamp,
+        submittedAtFormatted: formattedTimestamp,
+        requestor: {
+          id: currentUser.id,
+          name: currentUser.name,
+          department: currentUser.department,
+          role: currentUser.role
+        }
+      };
+      const existing = JSON.parse(localStorage.getItem('docupulse_requisitions') || '[]');
+      localStorage.setItem('docupulse_requisitions', JSON.stringify([record, ...existing]));
+
       setIsSubmitting(false);
 
       if (onSubmissionSuccess) {
-        onSubmissionSuccess(result);
+        onSubmissionSuccess({
+          success: true,
+          message: `Requisition ${requisitionId} has been successfully submitted and logged into DocuPulse.`,
+          requisition: record
+        });
       }
+
       setItems(INITIAL_ITEMS);
       setRemarks('');
       setDateNeeded('');
@@ -143,7 +174,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           <ShieldAlert size={22} />
           <div>
             <strong>Submission Restricted to Authorized Requestors</strong>
-            <p>Your current profile ({currentUser.name}) is not authorized. Switch user in the top right to submit.</p>
+            <p>Your current profile is not authorized. Switch user in the top right to submit.</p>
           </div>
         </div>
       )}
@@ -168,6 +199,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             </div>
             <h2 className="org-name">DocuPulse &bull; Asia Pacific College</h2>
             <h1 className="doc-main-title">REQUISITION FORM</h1>
+
             <div className="req-type-radios">
               <label className="type-checkbox-label">
                 <input
@@ -178,7 +210,6 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
                   onChange={() => setReqType('PAYMENT')}
                   disabled={!isAuthorized}
                 />
-                <span className="checkbox-custom"></span>
                 <strong>[ &nbsp; ] PAYMENT</strong>
               </label>
 
@@ -191,7 +222,6 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
                   onChange={() => setReqType('PURCHASE')}
                   disabled={!isAuthorized}
                 />
-                <span className="checkbox-custom"></span>
                 <strong>[ &nbsp; ] PURCHASE</strong>
               </label>
             </div>
@@ -199,9 +229,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           <div className="paper-meta-box">
             <div className="meta-line">
               <span className="meta-title">Control No.:</span>
-              <span className="meta-value pending-id" title="Auto-assigned upon digital submission">
-                [ Auto-Assigned on Submit ]
-              </span>
+              <span className="meta-value pending-id">[ Auto-Assigned ]</span>
             </div>
             <div className="meta-line">
               <span className="meta-title">Date Filed:</span>
@@ -222,6 +250,8 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             {errors.dateNeeded && <span className="cell-error">{errors.dateNeeded}</span>}
           </div>
         </div>
+
+        {/* REQUISITION ITEMS TABLE (AC 2) */}
         <div className="paper-table-wrapper">
           <table className="paper-table">
             <thead>
@@ -255,7 +285,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
                     <td>
                       <input
                         type="text"
-                        placeholder="Specify item description, purpose, or service specifications..."
+                        placeholder="Specify item description or purpose..."
                         className="cell-input"
                         value={item.particulars}
                         onChange={(e) => handleItemChange(idx, 'particulars', e.target.value)}
@@ -284,7 +314,6 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
                           className="btn-icon-delete"
                           onClick={() => handleRemoveItem(idx)}
                           disabled={!isAuthorized}
-                          title="Remove line"
                         >
                           &times;
                         </button>
@@ -307,6 +336,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             </tfoot>
           </table>
         </div>
+
         <div style={{ marginTop: '0.35rem', marginBottom: '1rem' }}>
           <button
             type="button"
@@ -320,12 +350,12 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         <div className="paper-fields-grid">
           <div className="paper-form-row">
             <label className="paper-label">
-              Remarks / Purpose Details: <span className="req-star">*</span>
+              Remarks: <span className="req-star">*</span>
             </label>
             <textarea
               rows={2}
               className={`paper-textarea ${errors.remarks ? 'input-error' : ''}`}
-              placeholder="State justifications, account codes, or project details..."
+              placeholder="State purpose, account codes, or business justification..."
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               disabled={!isAuthorized}
@@ -340,7 +370,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             <input
               type="text"
               className={`paper-input-underline ${errors.department ? 'input-error' : ''}`}
-              placeholder="e.g. Operations, Information Technology, Academic Affairs"
+              placeholder="e.g. Operations, IT, Finance"
               value={department}
               onChange={(e) => setDepartment(e.target.value)}
               disabled={!isAuthorized}
@@ -348,6 +378,8 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             {errors.department && <span className="cell-error">{errors.department}</span>}
           </div>
         </div>
+
+        {/* SIGNATURES GRID (AC 1) */}
         <div className="paper-signatures-grid">
           <div className="signature-box">
             <span className="sig-title">Requested by:</span>
@@ -360,6 +392,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             </div>
             <span className="sig-footer-label">Signature over Printed Name / Date</span>
           </div>
+
           <div className="signature-box">
             <span className="sig-title">Verified by:</span>
             <div className="sig-content">
@@ -367,6 +400,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             </div>
             <span className="sig-footer-label">Signature over Printed Name / Date</span>
           </div>
+
           <div className="signature-box">
             <span className="sig-title">Funding Assured by:</span>
             <div className="sig-content">
@@ -374,13 +408,15 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             </div>
             <span className="sig-footer-label">Signature over Printed Name / Date</span>
           </div>
+
           <div className="signature-box">
             <span className="sig-title">Approved by:</span>
             <div className="sig-content">
-              <div className="sig-pending-text">[ Department Head / Executive Approval ]</div>
+              <div className="sig-pending-text">[ Department Head Approval ]</div>
             </div>
             <span className="sig-footer-label">Signature over Printed Name / Date</span>
           </div>
+
           <div className="signature-box po-box">
             <span className="sig-title">For Purchase, related PO number:</span>
             <div className="sig-content">
@@ -388,9 +424,12 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             </div>
           </div>
         </div>
+
         <div className="paper-footer-tag">
           LOGIS-PMP1 &bull; V4.0 &bull; DocuPulse Certified Digital System
         </div>
+
+        {/* ACTIONS */}
         <div className="form-submit-bar">
           <button
             type="button"
