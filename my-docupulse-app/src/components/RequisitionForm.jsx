@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from './AuthContext'; // or '../context/AuthContext' if in folder
-import { validateRequisitionInput, submitRequisition } from './requisitionService'; // or '../services/requisitionService'
+import { useAuth } from '../AuthContext';
+import { validateRequisitionInput, submitRequisition } from '../requisitionService';
 import { Plus, Trash2, Send, Sparkles, AlertCircle, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
 const INITIAL_ITEMS = [
