@@ -667,13 +667,12 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         <div className="apc-doc-header">
           <div className="apc-brand-center">
             <div className="apc-org-emblem">
-              <svg width="50" height="50" viewBox="0 0 100 100" fill="none">
-                <circle cx="50" cy="50" r="46" stroke="#1e293b" strokeWidth="4" fill="#f8fafc" />
-                <circle cx="50" cy="50" r="38" stroke="#2563eb" strokeWidth="2" />
-                <path d="M50 20 L65 75 L35 75 Z" fill="#1e3a8a" />
-                <circle cx="50" cy="46" r="10" fill="#f59e0b" />
-              </svg>
-            </div>
+  <img 
+    src="/apc-logo.png" 
+    alt="Asia Pacific College Seal" 
+    style={{ width: '68px', height: '68px', objectFit: 'contain', display: 'block', margin: '0 auto' }} 
+  />
+</div>
             <h2 className="apc-org-name">Asia Pacific College</h2>
             <h1 className="apc-form-title">REQUISITION FORM</h1>
 

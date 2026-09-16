@@ -4,15 +4,10 @@ import RequisitionForm from './components/RequisitionForm';
 import ConfirmationModal from './components/ConfirmationModal';
 import RequisitionList from './components/RequisitionList';
 import { 
-  Building2, 
   FileText, 
-  CheckSquare, 
   Clock, 
-  Bell, 
   Printer, 
   RotateCcw, 
-  ExternalLink, 
-  ShieldCheck, 
   ChevronRight 
 } from 'lucide-react';
 function WebsiteLayout() {
@@ -83,15 +78,13 @@ function WebsiteLayout() {
           align-items: center;
           gap: 0.75rem;
         }
-        .site-brand-badge {
-          background: #2563eb;
-          color: #ffffff;
-          width: 36px;
-          height: 36px;
-          border-radius: 8px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+        .site-brand-logo {
+          width: 40px;
+          height: 40px;
+          object-fit: contain;
+          border-radius: 50%;
+          background: #ffffff;
+          padding: 2px;
         }
         .site-brand-title {
           font-size: 1.15rem;
@@ -251,13 +244,15 @@ function WebsiteLayout() {
       `}</style>
       <header className="site-nav">
         <div className="site-brand">
-          <div className="site-brand-badge">
-            <Building2 size={20} />
-          </div>
+          <img 
+            src="/apc-logo.png" 
+            alt="Asia Pacific College Logo" 
+            className="site-brand-logo" 
+          />
           <div>
             <div className="site-brand-title">
-              DocuPulse
-              <span className="site-brand-sub">APC Portal</span>
+              Asia Pacific College
+              <span className="site-brand-sub">Requisition Portal</span>
             </div>
           </div>
         </div>
