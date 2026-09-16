@@ -40,6 +40,28 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
   const [duplicateWarning, setDuplicateWarning] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [dateFiled, setDateFiled] = useState(
+    new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    })
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setDateFiled(
+        new Date().toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        })
+      );
+    }, 60000);
+
+    return () => clearInterval(timer);
+  }, []);
+
   const [signatures, setSignatures] = useState({
     requestedBy: { name: '', image: null },
     verifiedBy: { name: '', image: null },
@@ -232,6 +254,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         priority: 'Medium',
         justification: remarks.trim(),
         poNumber: poNumber.trim(),
+        dateFiled,
         dateNeeded,
         currency: 'PHP',
         items: processedItems,
@@ -288,12 +311,6 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
       setErrors({ submit: err.message });
     }
   };
-
-  const currentDate = new Date().toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  });
 
   return (
     <div className="apc-paper-container">
@@ -874,7 +891,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             </div>
             <div className="apc-meta-row">
               <span className="apc-meta-title">Date Filed:</span>
-              <span className="apc-meta-date">{currentDate}</span>
+              <span className="apc-meta-date">{dateFiled}</span>
             </div>
             <div className="apc-meta-row">
               <span className="apc-meta-title">Date Needed: *</span>
