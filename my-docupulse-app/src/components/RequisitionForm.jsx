@@ -1,351 +1,414 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import LineItemsTable from './LineItemsTable';
-import { validateRequisitionInput, submitRequisition } from '../services/requisitionService';
-import { Send, Sparkles, AlertCircle, ShieldAlert, FileCheck } from 'lucide-react';
+import { useAuth } from './AuthContext'; // or '../context/AuthContext' if in folder
+import { validateRequisitionInput, submitRequisition } from './requisitionService'; // or '../services/requisitionService'
+import { Plus, Trash2, Send, Sparkles, AlertCircle, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
-const INITIAL_FORM_STATE = {
-  title: '',
-  department: '',
-  category: '',
-  priority: 'Medium',
-  justification: '',
-  currency: 'USD',
-  items: [{ id: 1, description: '', quantity: 1, unitPrice: '' }]
-};
+const INITIAL_ITEMS = [
+  { id: 1, quantity: 1, particulars: '', unitCost: '' },
+  { id: 2, quantity: '', particulars: '', unitCost: '' },
+  { id: 3, quantity: '', particulars: '', unitCost: '' },
+  { id: 4, quantity: '', particulars: '', unitCost: '' }
+];
 
 export default function RequisitionForm({ onSubmissionSuccess }) {
   const { currentUser, isAuthorized } = useAuth();
-  const [formData, setFormData] = useState(INITIAL_FORM_STATE);
+
+  const [reqType, setReqType] = useState('PURCHASE'); // 'PAYMENT' or 'PURCHASE'
+  const [dateNeeded, setDateNeeded] = useState('');
+  const [department, setDepartment] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [items, setItems] = useState(INITIAL_ITEMS);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState(null);
-
   useEffect(() => {
-    if (currentUser && currentUser.department && !formData.department && currentUser.authorized) {
-      setFormData((prev) => ({ ...prev, department: currentUser.department }));
+    if (currentUser && currentUser.department && !department && currentUser.authorized) {
+      setDepartment(currentUser.department);
     }
   }, [currentUser]);
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    if (errors[name]) {
-      setErrors((prev) => {
-        const next = { ...prev };
-        delete next[name];
-        return next;
-      });
-    }
+  const handleItemChange = (index, field, value) => {
+    const updated = [...items];
+    updated[index] = { ...updated[index], [field]: value };
+    setItems(updated);
   };
 
   const handleAddItem = () => {
-    setFormData((prev) => ({
-      ...prev,
-      items: [...prev.items, { id: Date.now(), description: '', quantity: 1, unitPrice: '' }]
-    }));
+    setItems([...items, { id: Date.now(), quantity: '', particulars: '', unitCost: '' }]);
   };
 
   const handleRemoveItem = (index) => {
-    if (formData.items.length <= 1) return;
-    setFormData((prev) => ({
-      ...prev,
-      items: prev.items.filter((_, idx) => idx !== index)
-    }));
+    if (items.length <= 1) return;
+    setItems(items.filter((_, idx) => idx !== index));
   };
-
-  const handleItemsChange = (newItems) => {
-    setFormData((prev) => ({ ...prev, items: newItems }));
-    if (errors.items || errors.itemRows) {
-      setErrors((prev) => {
-        const next = { ...prev };
-        delete next.items;
-        delete next.itemRows;
-        return next;
-      });
-    }
-  };
-
-  const handleFillSample = () => {
-    setFormData({
-      title: 'High-Performance Engineering Workstations Refresh',
-      department: currentUser.department || 'Information Technology',
-      category: 'IT Hardware',
-      priority: 'High',
-      justification: 'Current developer machines have reached end-of-life, impeding compilation performance.',
-      currency: 'USD',
-      items: [
-        { id: 1, description: 'Apple MacBook Pro 16" M3 Max 36GB', quantity: 2, unitPrice: 3499.00 },
-        { id: 2, description: 'Dell UltraSharp 32" 4K USB-C Hub Monitor', quantity: 2, unitPrice: 799.50 }
-      ]
-    });
-    setErrors({});
-    setSubmitError(null);
-  };
-
-  const grandTotal = formData.items.reduce((sum, item) => {
+  const totalCost = items.reduce((sum, item) => {
     const qty = Number(item.quantity) || 0;
-    const price = Number(item.unitPrice) || 0;
-    return sum + qty * price;
+    const cost = Number(item.unitCost) || 0;
+    return sum + qty * cost;
   }, 0);
+  const handleFillSample = () => {
+    setReqType('PURCHASE');
+    setDateNeeded(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+    setDepartment(currentUser.department || 'Operations');
+    setRemarks('Procurement of required workstation equipment for Q3 operational deployment.');
+    setItems([
+      { id: 1, quantity: 5, particulars: 'Ergonomic Desk Chairs (Mesh Back, Lumbar Support)', unitCost: 185.00 },
+      { id: 2, quantity: 5, particulars: 'Dual Monitor Mount Arms with Cable Management', unitCost: 45.50 },
+      { id: 3, quantity: 10, particulars: 'DisplayPort to HDMI 4K Braided Cables (6ft)', unitCost: 12.00 }
+    ]);
+    setErrors({});
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setSubmitError(null);
+
     if (!isAuthorized) {
-      setSubmitError('Unauthorized Requestor: You do not have permission to submit digital requisitions.');
+      setErrors({ auth: 'Unauthorized Requestor: You must be logged in as an authorized user to submit.' });
       return;
     }
-    const validation = validateRequisitionInput(formData);
-    if (!validation.isValid) {
-      setErrors(validation.errors);
+    const filledItems = items.filter(
+      (item) => item.particulars.trim() !== '' || item.quantity !== '' || item.unitCost !== ''
+    );
+
+    const validationErrors = {};
+    if (!department.trim()) {
+      validationErrors.department = 'Charge to (Department/Unit) is required.';
+    }
+    if (!dateNeeded) {
+      validationErrors.dateNeeded = 'Date Needed is required.';
+    }
+    if (!remarks.trim() || remarks.trim().length < 5) {
+      validationErrors.remarks = 'Remarks / Business justification is required.';
+    }
+    if (filledItems.length === 0) {
+      validationErrors.items = 'At least one line item is required.';
+    } else {
+      filledItems.forEach((item, idx) => {
+        if (!item.particulars.trim()) {
+          validationErrors[`item_${idx}_particulars`] = 'Required';
+        }
+        if (!item.quantity || Number(item.quantity) <= 0) {
+          validationErrors[`item_${idx}_quantity`] = 'Invalid Qty';
+        }
+        if (item.unitCost === '' || Number(item.unitCost) < 0) {
+          validationErrors[`item_${idx}_cost`] = 'Invalid Cost';
+        }
+      });
+    }
+
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
       return;
     }
+    const payload = {
+      title: `${reqType} Requisition - ${department}`,
+      department: department.trim(),
+      category: reqType === 'PURCHASE' ? 'Office / Equipment' : 'Payment / Operating Expense',
+      priority: 'Medium',
+      justification: remarks.trim(),
+      currency: 'PHP',
+      items: filledItems.map((item) => ({
+        description: item.particulars.trim(),
+        quantity: parseInt(item.quantity, 10),
+        unitPrice: parseFloat(item.unitCost)
+      }))
+    };
 
     try {
       setIsSubmitting(true);
-      const result = await submitRequisition(formData, currentUser);
+      const result = await submitRequisition(payload, currentUser);
       setIsSubmitting(false);
 
       if (onSubmissionSuccess) {
         onSubmissionSuccess(result);
       }
-
-      setFormData({
-        ...INITIAL_FORM_STATE,
-        department: currentUser.department || ''
-      });
+      setItems(INITIAL_ITEMS);
+      setRemarks('');
+      setDateNeeded('');
       setErrors({});
     } catch (err) {
       setIsSubmitting(false);
-      setSubmitError(err.message || 'An error occurred during submission.');
+      setErrors({ submit: err.message });
     }
   };
 
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+
   return (
-    <div className="form-card">
-      {/* AC 1 Banner */}
+    <div className="paper-form-wrapper">
       {!isAuthorized && (
-        <div className="unauthorized-banner" data-testid="unauthorized-banner">
-          <ShieldAlert size={24} style={{ flexShrink: 0, marginTop: 2 }} />
+        <div className="unauthorized-banner">
+          <ShieldAlert size={22} />
           <div>
-            <h4>Submission Restricted to Authorized Requestors</h4>
-            <p>
-              Your active session (<strong>{currentUser.name}</strong>) is not authorized.
-              Please switch to an authorized user from the top header dropdown.
-            </p>
+            <strong>Submission Restricted to Authorized Requestors</strong>
+            <p>Your current profile ({currentUser.name}) is not authorized. Switch user in the top right to submit.</p>
           </div>
         </div>
       )}
 
-      {submitError && (
-        <div className="unauthorized-banner" style={{ marginBottom: '1.5rem' }}>
-          <AlertCircle size={22} style={{ flexShrink: 0 }} />
-          <div>
-            <h4>Submission Blocked</h4>
-            <p>{submitError}</p>
-          </div>
+      {errors.auth && (
+        <div className="unauthorized-banner">
+          <AlertCircle size={20} />
+          <span>{errors.auth}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} noValidate>
-        {/* Section 1 */}
-        <div className="section-divider">
-          <div className="section-header-row">
-            <span className="step-indicator">1</span>
-            <h3>Requisition Header & Classification</h3>
-          </div>
-
-          <div className="grid-2">
-            <div className="form-group col-span-full">
-              <label className="form-label" htmlFor="title">
-                Requisition Title <span className="req-star">*</span>
+      <form onSubmit={handleSubmit} className="paper-sheet" noValidate>
+        <div className="paper-header">
+          <div className="paper-brand-center">
+            <div className="org-emblem">
+              <svg width="46" height="46" viewBox="0 0 100 100" fill="none">
+                <circle cx="50" cy="50" r="46" stroke="#1e293b" strokeWidth="4" fill="#f8fafc" />
+                <circle cx="50" cy="50" r="38" stroke="#2563eb" strokeWidth="2" />
+                <path d="M50 20 L65 75 L35 75 Z" fill="#1e3a8a" />
+                <circle cx="50" cy="46" r="10" fill="#f59e0b" />
+              </svg>
+            </div>
+            <h2 className="org-name">DocuPulse &bull; Asia Pacific College</h2>
+            <h1 className="doc-main-title">REQUISITION FORM</h1>
+            <div className="req-type-radios">
+              <label className="type-checkbox-label">
+                <input
+                  type="radio"
+                  name="reqType"
+                  value="PAYMENT"
+                  checked={reqType === 'PAYMENT'}
+                  onChange={() => setReqType('PAYMENT')}
+                  disabled={!isAuthorized}
+                />
+                <span className="checkbox-custom"></span>
+                <strong>[ &nbsp; ] PAYMENT</strong>
               </label>
+
+              <label className="type-checkbox-label">
+                <input
+                  type="radio"
+                  name="reqType"
+                  value="PURCHASE"
+                  checked={reqType === 'PURCHASE'}
+                  onChange={() => setReqType('PURCHASE')}
+                  disabled={!isAuthorized}
+                />
+                <span className="checkbox-custom"></span>
+                <strong>[ &nbsp; ] PURCHASE</strong>
+              </label>
+            </div>
+          </div>
+          <div className="paper-meta-box">
+            <div className="meta-line">
+              <span className="meta-title">Control No.:</span>
+              <span className="meta-value pending-id" title="Auto-assigned upon digital submission">
+                [ Auto-Assigned on Submit ]
+              </span>
+            </div>
+            <div className="meta-line">
+              <span className="meta-title">Date Filed:</span>
+              <span className="meta-value date-filed">{currentDate}</span>
+            </div>
+            <div className="meta-line">
+              <span className="meta-title">
+                Date Needed: <span className="req-star">*</span>
+              </span>
               <input
-                type="text"
-                id="title"
-                name="title"
-                className={`form-input ${errors.title ? 'has-error' : ''}`}
-                placeholder="e.g. Ergonomic Office Chairs Refresh"
-                value={formData.title}
-                onChange={handleChange}
+                type="date"
+                className={`paper-inline-input ${errors.dateNeeded ? 'input-error' : ''}`}
+                value={dateNeeded}
+                onChange={(e) => setDateNeeded(e.target.value)}
                 disabled={!isAuthorized}
               />
-              {errors.title && (
-                <span className="error-hint" data-testid="title-error">
-                  <AlertCircle size={13} /> {errors.title}
-                </span>
-              )}
             </div>
-
-            <div className="form-group">
-              <label className="form-label" htmlFor="department">
-                Requesting Department <span className="req-star">*</span>
-              </label>
-              <select
-                id="department"
-                name="department"
-                className={`form-select ${errors.department ? 'has-error' : ''}`}
-                value={formData.department}
-                onChange={handleChange}
-                disabled={!isAuthorized}
-              >
-                <option value="">Select Department...</option>
-                <option value="Operations">Operations</option>
-                <option value="Information Technology">Information Technology</option>
-                <option value="Finance & Accounting">Finance & Accounting</option>
-                <option value="Human Resources">Human Resources</option>
-                <option value="Research & Development">Research & Development</option>
-              </select>
-              {errors.department && (
-                <span className="error-hint" data-testid="department-error">
-                  <AlertCircle size={13} /> {errors.department}
-                </span>
-              )}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label" htmlFor="category">
-                Procurement Category <span className="req-star">*</span>
-              </label>
-              <select
-                id="category"
-                name="category"
-                className={`form-select ${errors.category ? 'has-error' : ''}`}
-                value={formData.category}
-                onChange={handleChange}
-                disabled={!isAuthorized}
-              >
-                <option value="">Select Category...</option>
-                <option value="IT Hardware">IT Hardware & Accessories</option>
-                <option value="Software & Subscriptions">Software & Cloud Licenses</option>
-                <option value="Office Equipment">Office Equipment & Ergonomics</option>
-                <option value="Professional Services">Professional Consulting</option>
-              </select>
-              {errors.category && (
-                <span className="error-hint" data-testid="category-error">
-                  <AlertCircle size={13} /> {errors.category}
-                </span>
-              )}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label" htmlFor="priority">
-                Urgency / Priority <span className="req-star">*</span>
-              </label>
-              <select
-                id="priority"
-                name="priority"
-                className="form-select"
-                value={formData.priority}
-                onChange={handleChange}
-                disabled={!isAuthorized}
-              >
-                <option value="Low">Low - Routine stock</option>
-                <option value="Medium">Medium - Standard need</option>
-                <option value="High">High - Impending milestone</option>
-                <option value="Urgent">Urgent - Outage blocker</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label" htmlFor="currency">Currency</label>
-              <select
-                id="currency"
-                name="currency"
-                className="form-select"
-                value={formData.currency}
-                onChange={handleChange}
-                disabled={!isAuthorized}
-              >
-                <option value="USD">USD ($)</option>
-                <option value="EUR">EUR (€)</option>
-                <option value="GBP">GBP (£)</option>
-              </select>
-            </div>
+            {errors.dateNeeded && <span className="cell-error">{errors.dateNeeded}</span>}
           </div>
         </div>
-        <div className="section-divider">
-          <div className="section-header-row">
-            <span className="step-indicator">2</span>
-            <h3>Requested Line Items</h3>
-          </div>
+        <div className="paper-table-wrapper">
+          <table className="paper-table">
+            <thead>
+              <tr>
+                <th style={{ width: '65px', textAlign: 'center' }}>QTY</th>
+                <th>Particulars / Purpose <span className="req-star">*</span></th>
+                <th style={{ width: '140px', textAlign: 'right' }}>Unit Cost</th>
+                <th style={{ width: '140px', textAlign: 'right' }}>Total Cost</th>
+                <th style={{ width: '45px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, idx) => {
+                const qty = Number(item.quantity) || 0;
+                const cost = Number(item.unitCost) || 0;
+                const rowTotal = (qty * cost).toFixed(2);
 
-          <LineItemsTable
-            items={formData.items}
-            onChange={handleItemsChange}
-            onAddItem={handleAddItem}
-            onRemoveItem={handleRemoveItem}
-            currency={formData.currency}
-            rowErrors={errors.itemRows}
+                return (
+                  <tr key={item.id || idx}>
+                    <td style={{ textAlign: 'center' }}>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="1"
+                        className="cell-input center"
+                        value={item.quantity}
+                        onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
+                        disabled={!isAuthorized}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        placeholder="Specify item description, purpose, or service specifications..."
+                        className="cell-input"
+                        value={item.particulars}
+                        onChange={(e) => handleItemChange(idx, 'particulars', e.target.value)}
+                        disabled={!isAuthorized}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                        className="cell-input right"
+                        value={item.unitCost}
+                        onChange={(e) => handleItemChange(idx, 'unitCost', e.target.value)}
+                        disabled={!isAuthorized}
+                      />
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 600, paddingRight: '0.75rem' }}>
+                      {qty > 0 && cost > 0 ? `$${rowTotal}` : '—'}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      {items.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn-icon-delete"
+                          onClick={() => handleRemoveItem(idx)}
+                          disabled={!isAuthorized}
+                          title="Remove line"
+                        >
+                          &times;
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3} className="total-label-cell">
+                  TOTAL:
+                </td>
+                <td className="total-value-cell">
+                  ${totalCost.toFixed(2)}
+                </td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div style={{ marginTop: '0.35rem', marginBottom: '1rem' }}>
+          <button
+            type="button"
+            className="btn-add-line"
+            onClick={handleAddItem}
             disabled={!isAuthorized}
-          />
-          {errors.items && (
-            <span className="error-hint" style={{ marginTop: '0.5rem' }} data-testid="items-error">
-              <AlertCircle size={13} /> {errors.items}
-            </span>
-          )}
-
-          <div className="total-summary-card">
-            <div className="total-summary-label">Estimated Total Amount</div>
-            <div className="total-summary-value" data-testid="grand-total">
-              ${grandTotal.toFixed(2)} <span style={{ fontSize: '0.9rem', color: 'var(--slate-500)' }}>{formData.currency}</span>
-            </div>
-          </div>
+          >
+            <Plus size={14} /> Add Particulars Line
+          </button>
         </div>
-
-        {/* Section 3 */}
-        <div>
-          <div className="section-header-row">
-            <span className="step-indicator">3</span>
-            <h3>Business Justification</h3>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="justification">
-              Business Justification <span className="req-star">*</span>
+        <div className="paper-fields-grid">
+          <div className="paper-form-row">
+            <label className="paper-label">
+              Remarks / Purpose Details: <span className="req-star">*</span>
             </label>
             <textarea
-              id="justification"
-              name="justification"
-              rows={3}
-              className={`form-textarea ${errors.justification ? 'has-error' : ''}`}
-              placeholder="Explain why these items are required..."
-              value={formData.justification}
-              onChange={handleChange}
+              rows={2}
+              className={`paper-textarea ${errors.remarks ? 'input-error' : ''}`}
+              placeholder="State justifications, account codes, or project details..."
+              value={remarks}
+              onChange={(e) => setRemarks(e.target.value)}
               disabled={!isAuthorized}
             />
-            {errors.justification && (
-              <span className="error-hint" data-testid="justification-error">
-                <AlertCircle size={13} /> {errors.justification}
-              </span>
-            )}
+            {errors.remarks && <span className="cell-error">{errors.remarks}</span>}
+          </div>
+
+          <div className="paper-form-row inline">
+            <label className="paper-label">
+              Charge to (Department/Unit): <span className="req-star">*</span>
+            </label>
+            <input
+              type="text"
+              className={`paper-input-underline ${errors.department ? 'input-error' : ''}`}
+              placeholder="e.g. Operations, Information Technology, Academic Affairs"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              disabled={!isAuthorized}
+            />
+            {errors.department && <span className="cell-error">{errors.department}</span>}
           </div>
         </div>
-        <div className="form-actions-bar">
+        <div className="paper-signatures-grid">
+          <div className="signature-box">
+            <span className="sig-title">Requested by:</span>
+            <div className="sig-content">
+              <div className="sig-name">{currentUser.name}</div>
+              <div className="sig-meta">{currentUser.role} &bull; {currentUser.department}</div>
+              <div className="digital-sig-stamp">
+                <CheckCircle2 size={12} color="#059669" /> Digital ID Verified
+              </div>
+            </div>
+            <span className="sig-footer-label">Signature over Printed Name / Date</span>
+          </div>
+          <div className="signature-box">
+            <span className="sig-title">Verified by:</span>
+            <div className="sig-content">
+              <div className="sig-pending-text">[ System Routing upon Submit ]</div>
+            </div>
+            <span className="sig-footer-label">Signature over Printed Name / Date</span>
+          </div>
+          <div className="signature-box">
+            <span className="sig-title">Funding Assured by:</span>
+            <div className="sig-content">
+              <div className="sig-pending-text">[ Finance & Accounting Unit ]</div>
+            </div>
+            <span className="sig-footer-label">Signature over Printed Name / Date</span>
+          </div>
+          <div className="signature-box">
+            <span className="sig-title">Approved by:</span>
+            <div className="sig-content">
+              <div className="sig-pending-text">[ Department Head / Executive Approval ]</div>
+            </div>
+            <span className="sig-footer-label">Signature over Printed Name / Date</span>
+          </div>
+          <div className="signature-box po-box">
+            <span className="sig-title">For Purchase, related PO number:</span>
+            <div className="sig-content">
+              <div className="sig-pending-text">Generated after approval</div>
+            </div>
+          </div>
+        </div>
+        <div className="paper-footer-tag">
+          LOGIS-PMP1 &bull; V4.0 &bull; DocuPulse Certified Digital System
+        </div>
+        <div className="form-submit-bar">
           <button
             type="button"
             className="btn btn-secondary"
             onClick={handleFillSample}
             disabled={!isAuthorized}
           >
-            <Sparkles size={16} /> Fill Sample Data
+            <Sparkles size={16} /> Fill Sample APC Form
           </button>
 
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-            <span className="actions-help-text">
-              <FileCheck size={14} /> Assigns unique ID and records timestamp
-            </span>
-            <button
-              type="submit"
-              className="btn btn-primary btn-lg"
-              disabled={!isAuthorized || isSubmitting}
-              data-testid="submit-requisition-btn"
-            >
-              <Send size={18} />
-              {isSubmitting ? 'Submitting...' : 'Submit Requisition'}
-            </button>
-          </div>
+          <button
+            type="submit"
+            className="btn btn-primary btn-lg"
+            disabled={!isAuthorized || isSubmitting}
+          >
+            <Send size={18} />
+            {isSubmitting ? 'Submitting Form...' : 'Submit Digital Requisition'}
+          </button>
         </div>
       </form>
     </div>
