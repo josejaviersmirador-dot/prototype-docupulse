@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import './index.css';
 import { AuthProvider } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import RequisitionForm from './components/RequisitionForm';
