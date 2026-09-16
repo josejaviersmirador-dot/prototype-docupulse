@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Trash2, Send, Sparkles, AlertCircle, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, Send, AlertCircle, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
 function generateRequisitionId() {
   const now = new Date();
@@ -20,15 +20,7 @@ const INITIAL_ITEMS = [
 ];
 
 export default function RequisitionForm({ onSubmissionSuccess }) {
-  const authContext = useAuth ? useAuth() : null;
-  const currentUser = authContext?.currentUser || {
-    id: 'usr_ops_01',
-    name: 'Jane Doe',
-    department: 'Operations',
-    role: 'Senior Operations Lead',
-    authorized: true
-  };
-  const isAuthorized = authContext ? authContext.isAuthorized : true;
+  const { currentUser, isAuthorized } = useAuth();
 
   const [reqType, setReqType] = useState('PURCHASE');
   const [dateNeeded, setDateNeeded] = useState('');
@@ -39,7 +31,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (currentUser?.department && !department) {
+    if (currentUser?.department && !department && currentUser.authorized) {
       setDepartment(currentUser.department);
     }
   }, [currentUser]);
@@ -65,18 +57,6 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
     return sum + qty * cost;
   }, 0);
 
-  const handleFillSample = () => {
-    setReqType('PURCHASE');
-    setDateNeeded(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
-    setDepartment(currentUser.department || 'Operations');
-    setRemarks('Procurement of required workstation equipment for Q3 operational deployment.');
-    setItems([
-      { id: 1, quantity: 5, particulars: 'Ergonomic Desk Chairs (Mesh Back, Lumbar Support)', unitCost: 185.00 },
-      { id: 2, quantity: 5, particulars: 'Dual Monitor Mount Arms with Cable Management', unitCost: 45.50 },
-      { id: 3, quantity: 10, particulars: 'DisplayPort to HDMI 4K Braided Cables (6ft)', unitCost: 12.00 }
-    ]);
-    setErrors({});
-  };
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -90,10 +70,14 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
     );
 
     const validationErrors = {};
-    if (!department.trim()) validationErrors.department = 'Department is required.';
+    if (!department.trim()) validationErrors.department = 'Charge to (Department/Unit) is required.';
     if (!dateNeeded) validationErrors.dateNeeded = 'Date Needed is required.';
-    if (!remarks.trim() || remarks.trim().length < 5) validationErrors.remarks = 'Remarks / Business justification is required.';
-    if (filledItems.length === 0) validationErrors.items = 'At least one line item is required.';
+    if (!remarks.trim() || remarks.trim().length < 5) {
+      validationErrors.remarks = 'Remarks / Business justification is required (minimum 5 characters).';
+    }
+    if (filledItems.length === 0) {
+      validationErrors.items = 'At least one line item is required.';
+    }
 
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
@@ -102,6 +86,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
 
     try {
       setIsSubmitting(true);
+
       const requisitionId = generateRequisitionId();
       const submissionDate = new Date();
       const submissionTimestamp = submissionDate.toISOString();
@@ -110,13 +95,17 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         timeStyle: 'medium'
       });
 
-      const processedItems = filledItems.map((item, idx) => ({
-        lineNumber: idx + 1,
-        description: item.particulars.trim(),
-        quantity: parseInt(item.quantity, 10) || 1,
-        unitPrice: parseFloat(item.unitCost) || 0,
-        lineTotal: +((parseInt(item.quantity, 10) || 1) * (parseFloat(item.unitCost) || 0)).toFixed(2)
-      }));
+      const processedItems = filledItems.map((item, idx) => {
+        const qty = parseInt(item.quantity, 10) || 1;
+        const price = parseFloat(item.unitCost) || 0;
+        return {
+          lineNumber: idx + 1,
+          description: item.particulars.trim(),
+          quantity: qty,
+          unitPrice: price,
+          lineTotal: +(qty * price).toFixed(2)
+        };
+      });
 
       const record = {
         requisitionId,
@@ -125,7 +114,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
         category: reqType,
         priority: 'Medium',
         justification: remarks.trim(),
-        currency: 'USD',
+        currency: 'PHP',
         items: processedItems,
         totalAmount: +(totalCost.toFixed(2)),
         status: 'Submitted',
@@ -138,6 +127,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           role: currentUser.role
         }
       };
+
       const existing = JSON.parse(localStorage.getItem('docupulse_requisitions') || '[]');
       localStorage.setItem('docupulse_requisitions', JSON.stringify([record, ...existing]));
 
@@ -226,6 +216,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
               </label>
             </div>
           </div>
+
           <div className="paper-meta-box">
             <div className="meta-line">
               <span className="meta-title">Control No.:</span>
@@ -251,15 +242,14 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           </div>
         </div>
 
-        {/* REQUISITION ITEMS TABLE (AC 2) */}
         <div className="paper-table-wrapper">
           <table className="paper-table">
             <thead>
               <tr>
                 <th style={{ width: '65px', textAlign: 'center' }}>QTY</th>
                 <th>Particulars / Purpose <span className="req-star">*</span></th>
-                <th style={{ width: '140px', textAlign: 'right' }}>Unit Cost</th>
-                <th style={{ width: '140px', textAlign: 'right' }}>Total Cost</th>
+                <th style={{ width: '150px', textAlign: 'right' }}>Unit Cost (₱)</th>
+                <th style={{ width: '150px', textAlign: 'right' }}>Total Cost (₱)</th>
                 <th style={{ width: '45px' }}></th>
               </tr>
             </thead>
@@ -267,7 +257,10 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
               {items.map((item, idx) => {
                 const qty = Number(item.quantity) || 0;
                 const cost = Number(item.unitCost) || 0;
-                const rowTotal = (qty * cost).toFixed(2);
+                const rowTotal = (qty * cost).toLocaleString('en-US', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2
+                });
 
                 return (
                   <tr key={item.id || idx}>
@@ -305,7 +298,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
                       />
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 600, paddingRight: '0.75rem' }}>
-                      {qty > 0 && cost > 0 ? `$${rowTotal}` : '—'}
+                      {qty > 0 && cost > 0 ? `₱${rowTotal}` : '—'}
                     </td>
                     <td style={{ textAlign: 'center' }}>
                       {items.length > 1 && (
@@ -329,7 +322,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
                   TOTAL:
                 </td>
                 <td className="total-value-cell">
-                  ${totalCost.toFixed(2)}
+                  ₱{totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
                 <td></td>
               </tr>
@@ -347,6 +340,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             <Plus size={14} /> Add Particulars Line
           </button>
         </div>
+
         <div className="paper-fields-grid">
           <div className="paper-form-row">
             <label className="paper-label">
@@ -379,7 +373,6 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           </div>
         </div>
 
-        {/* SIGNATURES GRID (AC 1) */}
         <div className="paper-signatures-grid">
           <div className="signature-box">
             <span className="sig-title">Requested by:</span>
@@ -429,17 +422,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
           LOGIS-PMP1 &bull; V4.0 &bull; DocuPulse Certified Digital System
         </div>
 
-        {/* ACTIONS */}
-        <div className="form-submit-bar">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={handleFillSample}
-            disabled={!isAuthorized}
-          >
-            <Sparkles size={16} /> Fill Sample APC Form
-          </button>
-
+        <div className="form-submit-bar" style={{ justifyContent: 'flex-end' }}>
           <button
             type="submit"
             className="btn btn-primary btn-lg"

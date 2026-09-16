@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Copy, Check, Printer, Calendar, Hash, User, DollarSign } from 'lucide-react';
+import { CheckCircle2, Copy, Check, Printer, Calendar, Hash, User } from 'lucide-react';
 
-export default function ConfirmationModal({ requisition, message, onClose, onResetForm }) {
+export default function ConfirmationModal({ requisition, message, onClose }) {
   const [copied, setCopied] = useState(false);
 
   if (!requisition) return null;
@@ -28,7 +28,7 @@ export default function ConfirmationModal({ requisition, message, onClose, onRes
             <div className="receipt-row">
               <span className="receipt-row-label">
                 <Hash size={14} style={{ display: 'inline', marginRight: 4 }} />
-                Requisition ID
+                Control No. (Requisition ID)
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span className="receipt-id-badge" data-testid="assigned-req-id">
@@ -38,7 +38,7 @@ export default function ConfirmationModal({ requisition, message, onClose, onRes
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={handleCopyId}
-                  title="Copy Requisition ID"
+                  title="Copy ID"
                   style={{ padding: '0.25rem 0.5rem' }}
                 >
                   {copied ? <Check size={14} color="#059669" /> : <Copy size={14} />}
@@ -49,35 +49,32 @@ export default function ConfirmationModal({ requisition, message, onClose, onRes
             <div className="receipt-row">
               <span className="receipt-row-label">
                 <Calendar size={14} style={{ display: 'inline', marginRight: 4 }} />
-                Submission Timestamp
+                Date Filed (Timestamp)
               </span>
               <span className="receipt-timestamp" data-testid="submission-timestamp">
-                {requisition.submittedAtFormatted} ({requisition.submittedAt})
+                {requisition.submittedAtFormatted}
               </span>
             </div>
 
             <div className="receipt-row">
               <span className="receipt-row-label">
                 <User size={14} style={{ display: 'inline', marginRight: 4 }} />
-                Authorized Requestor
+                Requested by
               </span>
               <span className="receipt-row-value">
-                {requisition.requestor.name} &bull; {requisition.requestor.department}
+                {requisition.requestor.name} &bull; {requisition.department}
               </span>
             </div>
 
             <div className="receipt-row">
-              <span className="receipt-row-label">Title</span>
+              <span className="receipt-row-label">Type & Purpose</span>
               <span className="receipt-row-value">{requisition.title}</span>
             </div>
 
             <div className="receipt-row" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.65rem' }}>
-              <span className="receipt-row-label">
-                <DollarSign size={14} style={{ display: 'inline', marginRight: 4 }} />
-                Total Authorized Value
-              </span>
-              <span className="currency-amount" style={{ fontSize: '1.25rem', color: 'var(--primary-700)' }}>
-                ${requisition.totalAmount.toFixed(2)} {requisition.currency}
+              <span className="receipt-row-label">Total Amount</span>
+              <span className="currency-amount" style={{ fontSize: '1.25rem', color: '#1e3a8a' }}>
+                ₱{requisition.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PHP
               </span>
             </div>
           </div>
@@ -85,17 +82,10 @@ export default function ConfirmationModal({ requisition, message, onClose, onRes
 
         <div className="modal-footer">
           <button type="button" className="btn btn-secondary" onClick={() => window.print()}>
-            <Printer size={16} /> Print Receipt
+            <Printer size={16} /> Print Official Form
           </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => {
-              onClose();
-              if (onResetForm) onResetForm();
-            }}
-          >
-            New Requisition
+          <button type="button" className="btn btn-primary" onClick={onClose}>
+            Close & New Requisition
           </button>
         </div>
       </div>
