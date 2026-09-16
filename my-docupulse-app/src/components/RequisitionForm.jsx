@@ -1014,7 +1014,7 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             <span className="apc-sig-footer-text">Signature over Printed Name / Date</span>
           </div>
 
-          <div className="apc-sig-cell po-cell">
+         <div className="apc-sig-cell po-cell">
             <span className="apc-sig-header">For Purchase, related PO number:</span>
             <input
               type="text"
@@ -1025,11 +1025,6 @@ export default function RequisitionForm({ onSubmissionSuccess }) {
             />
           </div>
         </div>
-
-        <div className="apc-footer-code">
-          LOGIS-PMP1 &bull; V4.0, 15 January 2015 &bull; DocuPulse Certified Digital System
-        </div>
-
         <div className="apc-actions-bar">
           <button
             type="submit"
